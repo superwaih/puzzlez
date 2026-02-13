@@ -171,14 +171,14 @@ export default function GamesPage() {
     setBoard(createShuffledBoard(config.rows, config.cols));
     setShowWinModal(false);
     setMounted(true);
-    startTimer();
+    setElapsed(0);
+    setPaused(false);
     return () => stopTimer();
-  }, [config.rows, config.cols, startTimer, stopTimer]);
+  }, [config.rows, config.cols, stopTimer]);
 
   useEffect(() => {
-    if (paused || showWinModal) {
-      stopTimer();
-    } else if (mounted && !paused && !showWinModal) {
+    stopTimer();
+    if (mounted && !paused && !showWinModal) {
       timerRef.current = setInterval(() => {
         setElapsed((prev) => prev + 1);
       }, 1000);
@@ -204,6 +204,7 @@ export default function GamesPage() {
   }, [solved, mounted, elapsed]);
 
   const moveTile = (tileIndex: number) => {
+    if (paused) return;
     if (tileIndex < 0 || tileIndex >= board.length) return;
     if (board[tileIndex] === EMPTY) return;
 
@@ -243,7 +244,8 @@ export default function GamesPage() {
   const resetGame = () => {
     setBoard(createShuffledBoard(config.rows, config.cols));
     setShowWinModal(false);
-    startTimer();
+    setElapsed(0);
+    setPaused(false);
   };
 
   const openWithdrawModal = () => {
