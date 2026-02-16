@@ -4,16 +4,17 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type Difficulty = "easy" | "medium" | "hard";
-
 const EMPTY = -1;
-const PUZZLE_IMAGE = "/valentine-puzzle.jpg";
 
-const DIFFICULTY_CONFIG: Record<Difficulty, { label: string; rows: number; cols: number }> = {
-  easy: { label: "Easy", rows: 3, cols: 4 },
-  medium: { label: "Medium", rows: 4, cols: 5 },
-  hard: { label: "Hard", rows: 5, cols: 6 },
-};
+const LEVELS = [
+  { label: "Level 1", image: "/levels/level-2.jpeg", rows: 3, cols: 4 },
+  { label: "Level 2", image: "/levels/level-3.jpeg", rows: 3, cols: 4 },
+  { label: "Level 3", image: "/levels/level-4.jpeg", rows: 4, cols: 4 },
+  { label: "Level 4", image: "/levels/level-5.jpeg", rows: 4, cols: 5 },
+  { label: "Level 5", image: "/levels/level-6.jpeg", rows: 4, cols: 5 },
+  { label: "Level 6", image: "/levels/level-7.jpeg", rows: 5, cols: 5 },
+  { label: "Level 7", image: "/levels/level-8.jpeg", rows: 5, cols: 6 },
+] as const;
 
 const BANKS = [
   "Access Bank",
@@ -101,7 +102,7 @@ function formatTime(seconds: number) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-function PuzzleTile({ pieceId, rows, cols }: { pieceId: number; rows: number; cols: number }) {
+function PuzzleTile({ pieceId, rows, cols, image }: { pieceId: number; rows: number; cols: number; image: string }) {
   const pieceRow = Math.floor(pieceId / cols);
   const pieceCol = pieceId % cols;
   const backgroundPositionX = (pieceCol * 100) / Math.max(cols - 1, 1);
@@ -111,7 +112,7 @@ function PuzzleTile({ pieceId, rows, cols }: { pieceId: number; rows: number; co
     <div
       className="w-full h-full rounded-lg border border-white/[0.22] shadow-[0_8px_22px_rgba(0,0,0,0.45)]"
       style={{
-        backgroundImage: `url(${PUZZLE_IMAGE})`,
+        backgroundImage: `url(${image})`,
         backgroundSize: `${cols * 100}% ${rows * 100}%`,
         backgroundPosition: `${backgroundPositionX}% ${backgroundPositionY}%`,
       }}
@@ -120,16 +121,34 @@ function PuzzleTile({ pieceId, rows, cols }: { pieceId: number; rows: number; co
 }
 
 export default function GamesPage() {
-  const [difficulty, setDifficulty] = useState<Difficulty>(() => {
+  const [currentLevelIndex, setCurrentLevelIndex] = useState<number>(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("puzzle-difficulty");
-      if (saved && saved in DIFFICULTY_CONFIG) return saved as Difficulty;
+      const saved = Number(localStorage.getItem("puzzle-current-level") ?? 0);
+      if (Number.isInteger(saved) && saved >= 0 && saved < LEVELS.length) return saved;
     }
-    return "easy";
+    return 0;
   });
-  const [board, setBoard] = useState<number[]>(() =>
-    createSolvedBoard(DIFFICULTY_CONFIG.easy.rows, DIFFICULTY_CONFIG.easy.cols),
-  );
+  const [maxUnlockedLevel, setMaxUnlockedLevel] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const saved = Number(localStorage.getItem("puzzle-max-unlocked-level") ?? 0);
+      if (Number.isInteger(saved) && saved >= 0 && saved < LEVELS.length) return saved;
+    }
+    return 0;
+  });
+  const [completedLevels, setCompletedLevels] = useState<number[]>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("puzzle-completed-levels");
+      if (!saved) return [];
+      try {
+        const parsed = JSON.parse(saved) as number[];
+        return parsed.filter((idx) => Number.isInteger(idx) && idx >= 0 && idx < LEVELS.length);
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
+  const [board, setBoard] = useState<number[]>(() => createSolvedBoard(LEVELS[0].rows, LEVELS[0].cols));
   const [mounted, setMounted] = useState(false);
   const [showWinModal, setShowWinModal] = useState(false);
   const [balance, setBalance] = useState(50000000);
@@ -145,12 +164,26 @@ export default function GamesPage() {
   const [mathAnswer, setMathAnswer] = useState<number>(0);
   const [withdrawDone, setWithdrawDone] = useState(false);
 
-  const config = useMemo(() => DIFFICULTY_CONFIG[difficulty], [difficulty]);
-  const totalSlots = config.rows * config.cols;
+  const currentLevel = useMemo(() => LEVELS[currentLevelIndex], [currentLevelIndex]);
+  const totalSlots = currentLevel.rows * currentLevel.cols;
 
   useEffect(() => {
-    localStorage.setItem("puzzle-difficulty", difficulty);
-  }, [difficulty]);
+    localStorage.setItem("puzzle-current-level", String(currentLevelIndex));
+  }, [currentLevelIndex]);
+
+  useEffect(() => {
+    localStorage.setItem("puzzle-max-unlocked-level", String(maxUnlockedLevel));
+  }, [maxUnlockedLevel]);
+
+  useEffect(() => {
+    localStorage.setItem("puzzle-completed-levels", JSON.stringify(completedLevels));
+  }, [completedLevels]);
+
+  useEffect(() => {
+    if (currentLevelIndex > maxUnlockedLevel) {
+      setCurrentLevelIndex(maxUnlockedLevel);
+    }
+  }, [currentLevelIndex, maxUnlockedLevel]);
 
   const startTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -169,12 +202,12 @@ export default function GamesPage() {
   }, []);
 
   useEffect(() => {
-    setBoard(createShuffledBoard(config.rows, config.cols));
+    setBoard(createShuffledBoard(currentLevel.rows, currentLevel.cols));
     setShowWinModal(false);
     setMounted(true);
     startTimer();
     return () => stopTimer();
-  }, [config.rows, config.cols, startTimer, stopTimer]);
+  }, [currentLevel, startTimer, stopTimer]);
 
   useEffect(() => {
     if (paused || showWinModal) {
@@ -197,17 +230,22 @@ export default function GamesPage() {
   }, [board, totalSlots]);
 
   useEffect(() => {
-    if (solved && mounted) {
+    if (solved && mounted && !showWinModal) {
       setWinTime(elapsed);
       setShowWinModal(true);
+      setCompletedLevels((prev) => (prev.includes(currentLevelIndex) ? prev : [...prev, currentLevelIndex]));
+      setMaxUnlockedLevel((prev) => {
+        const next = Math.max(prev, Math.min(currentLevelIndex + 1, LEVELS.length - 1));
+        return next;
+      });
     }
-  }, [solved, mounted, elapsed]);
+  }, [solved, mounted, elapsed, showWinModal, currentLevelIndex]);
 
   const moveTile = (tileIndex: number) => {
     if (tileIndex < 0 || tileIndex >= board.length) return;
     if (board[tileIndex] === EMPTY) return;
 
-    const canMove = getNeighbors(emptyIndex, config.rows, config.cols).includes(tileIndex);
+    const canMove = getNeighbors(emptyIndex, currentLevel.rows, currentLevel.cols).includes(tileIndex);
     if (!canMove) return;
 
     setBoard((prev) => {
@@ -241,9 +279,16 @@ export default function GamesPage() {
   };
 
   const resetGame = () => {
-    setBoard(createShuffledBoard(config.rows, config.cols));
+    setBoard(createShuffledBoard(currentLevel.rows, currentLevel.cols));
     setShowWinModal(false);
     startTimer();
+  };
+
+  const selectLevel = (levelIndex: number) => {
+    if (levelIndex > maxUnlockedLevel) return;
+    setCurrentLevelIndex(levelIndex);
+    setPaused(false);
+    setShowWinModal(false);
   };
 
   const openWithdrawModal = () => {
@@ -278,17 +323,9 @@ export default function GamesPage() {
               <button className="rounded-full border border-white/25 bg-transparent text-white py-2 px-3 disabled:opacity-40 disabled:cursor-not-allowed" onClick={openWithdrawModal} disabled={balance <= 0}>
                 Withdraw Balance
               </button>
-              <select
-                className="rounded-full border border-white/25 bg-transparent text-white py-2 px-3 min-w-[170px]"
-                value={difficulty}
-                onChange={(e) => setDifficulty(e.target.value as Difficulty)}
-              >
-                {(Object.keys(DIFFICULTY_CONFIG) as Difficulty[]).map((level) => (
-                  <option key={level} value={level}>
-                    {DIFFICULTY_CONFIG[level].label} ({DIFFICULTY_CONFIG[level].rows}x{DIFFICULTY_CONFIG[level].cols})
-                  </option>
-                ))}
-              </select>
+              <div className="rounded-full border border-white/25 bg-transparent text-white py-2 px-3">
+                {currentLevel.label} ({currentLevel.rows}x{currentLevel.cols})
+              </div>
               <div className="rounded-full border border-white/25 bg-transparent text-white py-2 px-3 tabular-nums font-mono text-sm">
                 ⏱ {formatTime(elapsed)}
               </div>
@@ -300,6 +337,35 @@ export default function GamesPage() {
           </div>
 
           <div className="relative min-h-0 rounded-[14px] border border-white/[0.12] bg-black/45 p-2.5 max-[1060px]:min-h-[65dvh]">
+            <div className="mb-2 rounded-xl border border-white/[0.12] bg-white/[0.03] p-2">
+              <p className="m-0 mb-2 text-white/85 text-sm">Levels</p>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {LEVELS.map((level, idx) => {
+                  const isUnlocked = idx <= maxUnlockedLevel;
+                  const isActive = idx === currentLevelIndex;
+                  const isCompleted = completedLevels.includes(idx);
+
+                  return (
+                    <button
+                      key={`top-${level.label}`}
+                      type="button"
+                      onClick={() => selectLevel(idx)}
+                      disabled={!isUnlocked}
+                      className={`relative min-w-[94px] overflow-hidden rounded-lg border p-0 text-left transition ${
+                        isActive ? "border-yellow-300/70" : "border-white/20"
+                      } ${isUnlocked ? "cursor-pointer" : "cursor-not-allowed opacity-65"}`}
+                      aria-label={`${level.label}${isUnlocked ? "" : " locked"}`}
+                    >
+                      <Image src={level.image} alt={level.label} width={220} height={280} className="h-14 w-full object-cover" />
+                      <div className="bg-black/65 px-1.5 py-1 text-[10px] text-white/90 flex items-center justify-between">
+                        <span>{level.label}</span>
+                        <span>{isUnlocked ? (isCompleted ? "Done" : "Open") : "Locked"}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             {paused && (
               <div className="absolute inset-0 z-20 rounded-[14px] bg-black/80 backdrop-blur-md grid place-items-center">
                 <div className="text-center">
@@ -318,8 +384,8 @@ export default function GamesPage() {
             <div
               className="mx-auto h-full max-h-full w-[min(70vh,100%)] grid gap-1 border border-white/[0.12] rounded-[10px] p-1 bg-black/35 aspect-[3/4]"
               style={{
-                gridTemplateColumns: `repeat(${config.cols}, minmax(0, 1fr))`,
-                gridTemplateRows: `repeat(${config.rows}, minmax(0, 1fr))`,
+                gridTemplateColumns: `repeat(${currentLevel.cols}, minmax(0, 1fr))`,
+                gridTemplateRows: `repeat(${currentLevel.rows}, minmax(0, 1fr))`,
               }}
             >
               {board.map((pieceId, idx) => {
@@ -334,7 +400,7 @@ export default function GamesPage() {
                   );
                 }
 
-                const movable = getNeighbors(emptyIndex, config.rows, config.cols).includes(idx);
+                const movable = getNeighbors(emptyIndex, currentLevel.rows, currentLevel.cols).includes(idx);
 
                 return (
                   <button
@@ -346,7 +412,7 @@ export default function GamesPage() {
                     className={`border-none bg-transparent p-0 w-full h-full rounded-lg ${movable ? "cursor-grab" : "cursor-not-allowed opacity-[0.92]"}`}
                     aria-label={`Move tile ${pieceId + 1}`}
                   >
-                    <PuzzleTile pieceId={pieceId} rows={config.rows} cols={config.cols} />
+                    <PuzzleTile pieceId={pieceId} rows={currentLevel.rows} cols={currentLevel.cols} image={currentLevel.image} />
                   </button>
                 );
               })}
@@ -354,24 +420,52 @@ export default function GamesPage() {
           </div>
         </section>
 
-        <aside className="border border-white/[0.12] rounded-[18px] bg-white/[0.04] min-h-0 grid grid-rows-[auto_1fr] gap-3.5 p-3.5">
+        <aside className="border border-white/[0.12] rounded-[18px] bg-white/[0.04] min-h-0 grid grid-rows-[auto_1fr_auto] gap-3.5 p-3.5 overflow-hidden">
           <div>
             <p className="m-0 mb-2 text-white/75 text-sm">Preview</p>
             <Image
-              src={PUZZLE_IMAGE}
-              alt="Puzzle preview"
+              src={currentLevel.image}
+              alt={`${currentLevel.label} preview`}
               width={1536}
               height={2048}
-              className="w-full h-auto rounded-[10px] border border-white/[0.18]"
+              className="w-full h-48 object-cover rounded-[10px] border border-white/[0.18]"
               priority
             />
           </div>
 
-          <div className="rounded-xl border border-white/[0.12] bg-white/[0.03] p-2.5 text-white/75 text-[0.88rem]">
-            <p className="m-0 mb-1.5">Drag a tile into the empty slot if it touches that slot.</p>
-            <p className="m-0 mb-1.5">Only adjacent tiles can move.</p>
-            <Link href="/" className="underline underline-offset-4">Back home</Link>
+          <div className="rounded-xl border border-white/[0.12] bg-white/[0.03] p-2.5 text-white/75 text-[0.88rem] space-y-2 overflow-y-auto">
+            <p className="m-0 text-white/85 text-sm">Levels</p>
+            <div className="grid grid-cols-2 gap-2">
+              {LEVELS.map((level, idx) => {
+                const isUnlocked = idx <= maxUnlockedLevel;
+                const isActive = idx === currentLevelIndex;
+                const isCompleted = completedLevels.includes(idx);
+
+                return (
+                  <button
+                    key={level.label}
+                    type="button"
+                    onClick={() => selectLevel(idx)}
+                    disabled={!isUnlocked}
+                    className={`relative overflow-hidden rounded-lg border p-0 text-left transition ${
+                      isActive
+                        ? "border-yellow-300/70"
+                        : "border-white/20"
+                    } ${isUnlocked ? "cursor-pointer" : "cursor-not-allowed opacity-65"}`}
+                    aria-label={`${level.label}${isUnlocked ? "" : " locked"}`}
+                  >
+                    <Image src={level.image} alt={level.label} width={400} height={520} className="h-20 w-full object-cover" />
+                    <div className="absolute inset-x-0 bottom-0 bg-black/65 px-2 py-1 text-[11px] text-white/90 flex items-center justify-between">
+                      <span>{level.label}</span>
+                      <span>{isUnlocked ? (isCompleted ? "Done" : "Open") : "Locked"}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
+
+          <Link href="/" className="underline underline-offset-4 text-white/80 text-sm">Back home</Link>
         </aside>
       </div>
 
@@ -386,6 +480,15 @@ export default function GamesPage() {
             </div>
             <div className="mt-3 inline-block rounded-full border border-white/15 bg-white/5 px-4 py-1.5">
               <span className="text-white/70 font-mono text-sm">⏱ Completed in {formatTime(winTime)}</span>
+            </div>
+            <div className="mt-4 mx-auto max-w-[220px] overflow-hidden rounded-xl border border-white/20">
+              <Image
+                src={currentLevel.image}
+                alt={`${currentLevel.label} complete preview`}
+                width={600}
+                height={800}
+                className="w-full h-auto blur-[2px] scale-[1.04]"
+              />
             </div>
             <p className="mt-4 text-white/70 text-lg leading-relaxed max-w-md mx-auto">
               Smooth moves. Clean finish. You solved the puzzle like an absolute pro.
