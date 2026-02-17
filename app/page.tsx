@@ -427,7 +427,7 @@ export default function GamesPage() {
               <button
                 className="rounded-full border border-white/25 bg-transparent text-white py-1.5 px-2.5 sm:py-2 sm:px-3 text-xs sm:text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={openWithdrawModal}
-                disabled={balance < 10000}
+                // disabled={balance < }
               >
                 Withdraw
               </button>
