@@ -284,6 +284,17 @@ export default function GamesPage() {
     startTimer();
   };
 
+  const playNextLevel = () => {
+    if (currentLevelIndex < LEVELS.length - 1) {
+      setShowWinModal(false);
+      setCurrentLevelIndex(currentLevelIndex + 1);
+      setPaused(false);
+      return;
+    }
+    setShowWinModal(false);
+    resetGame();
+  };
+
   const selectLevel = (levelIndex: number) => {
     if (levelIndex > maxUnlockedLevel) return;
     setCurrentLevelIndex(levelIndex);
@@ -496,12 +507,11 @@ export default function GamesPage() {
             <div className="flex flex-wrap justify-center gap-3 mt-6">
               <button
                 className="rounded-full border border-yellow-400/40 bg-yellow-400/10 hover:bg-yellow-400/20 text-yellow-200 py-3 px-6 text-base font-medium transition-colors"
-                onClick={() => {
-                  setShowWinModal(false);
-                  resetGame();
-                }}
+                onClick={playNextLevel}
               >
-                Play Again
+                {currentLevelIndex < LEVELS.length - 1
+                  ? "Play Next Level"
+                  : "Play Again"}
               </button>
               <button
                 className="rounded-full border border-white/20 bg-white/5 hover:bg-white/10 text-white/80 py-3 px-6 text-base font-medium transition-colors"
