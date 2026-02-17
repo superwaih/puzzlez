@@ -2,169 +2,35 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-const EMPTY = -1;
-const LEVELS = [
-  { label: "Level 1", image: "/ben-new.jpeg", rows: 3, cols: 3 },
-  { label: "Level 2", image: "/levels/level-3.jpeg", rows: 3, cols: 3 },
-  { label: "Level 3", image: "/levels/level-4.jpeg", rows: 3, cols: 4 },
-  { label: "Level 4", image: "/levels/level-5.jpeg", rows: 3, cols: 4 },
-  { label: "Level 5", image: "/levels/level-6.jpeg", rows: 4, cols: 4 },
-  { label: "Level 6", image: "/levels/level-7.jpeg", rows: 4, cols: 5 },
-  { label: "Level 7", image: "/levels/level-8.jpeg", rows: 4, cols: 4 },
-] as const;
-
-const BANKS = [
-  "Access Bank",
-  "GTBank",
-  "First Bank of Nigeria",
-  "Zenith Bank",
-  "UBA",
-  "Fidelity Bank",
-  "Sterling Bank",
-  "Union Bank",
-  "Wema Bank",
-  "Opay",
-  "Kuda",
-  "PalmPay",
-];
-
-function getNeighbors(index: number, rows: number, cols: number) {
-  const r = Math.floor(index / cols);
-  const c = index % cols;
-  const neighbors: number[] = [];
-  if (r > 0) neighbors.push(index - cols);
-  if (r < rows - 1) neighbors.push(index + cols);
-  if (c > 0) neighbors.push(index - 1);
-  if (c < cols - 1) neighbors.push(index + 1);
-  return neighbors;
-}
-
-function createSolvedBoard(rows: number, cols: number) {
-  const total = rows * cols;
-  const board = Array.from({ length: total }, (_, idx) => idx);
-  board[total - 1] = EMPTY;
-  return board;
-}
-
-function createShuffledBoard(rows: number, cols: number) {
-  const total = rows * cols;
-  const board = createSolvedBoard(rows, cols);
-  let emptyIndex = total - 1;
-
-  const shuffleMoves = total * 35;
-  for (let i = 0; i < shuffleMoves; i += 1) {
-    const neighbors = getNeighbors(emptyIndex, rows, cols);
-    const randomNeighbor =
-      neighbors[Math.floor(Math.random() * neighbors.length)];
-    [board[emptyIndex], board[randomNeighbor]] = [
-      board[randomNeighbor],
-      board[emptyIndex],
-    ];
-    emptyIndex = randomNeighbor;
-  }
-
-  const solved = board.every((value, idx) => {
-    if (idx === total - 1) return value === EMPTY;
-    return value === idx;
-  });
-
-  if (solved) {
-    const neighbors = getNeighbors(emptyIndex, rows, cols);
-    const swapIndex = neighbors[0];
-    [board[emptyIndex], board[swapIndex]] = [
-      board[swapIndex],
-      board[emptyIndex],
-    ];
-  }
-
-  return board;
-}
-
-function formatNaira(value: number) {
-  return new Intl.NumberFormat("en-NG", {
-    style: "currency",
-    currency: "NGN",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-function generateMathChallenge() {
-  const a = 17 + Math.floor(Math.random() * 7);
-  const b = 11 + Math.floor(Math.random() * 5);
-  const c = 23 + Math.floor(Math.random() * 7);
-  const d = 9 + Math.floor(Math.random() * 7);
-  const e = 6 + Math.floor(Math.random() * 6);
-
-  const answer = (a ** 3 - b ** 3) / e + c * d - (a + b);
-  const question = `Compute: (( ${a}^3 - ${b}^3 ) / ${e}) + (${c} × ${d}) - (${a} + ${b})`;
-  return { question, answer };
-}
-
-function formatTime(seconds: number) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-function PuzzleTile({
-  pieceId,
-  rows,
-  cols,
-  image,
-}: {
-  pieceId: number;
-  rows: number;
-  cols: number;
-  image: string;
-}) {
-  const pieceRow = Math.floor(pieceId / cols);
-  const pieceCol = pieceId % cols;
-  const backgroundPositionX = (pieceCol * 100) / Math.max(cols - 1, 1);
-  const backgroundPositionY = (pieceRow * 100) / Math.max(rows - 1, 1);
-
-  return (
-    <div
-      className="w-full h-full rounded-md sm:rounded-lg border border-white/[0.22] shadow-[0_4px_12px_rgba(0,0,0,0.35)] sm:shadow-[0_8px_22px_rgba(0,0,0,0.45)]"
-      style={{
-        backgroundImage: `url(${image})`,
-        backgroundSize: `${cols * 100}% ${rows * 100}%`,
-        backgroundPosition: `${backgroundPositionX}% ${backgroundPositionY}%`,
-      }}
-    />
-  );
-}
+import { LevelPreviewGrid } from "./puzzle/components/LevelPreviewGrid";
+import { PuzzleTile } from "./puzzle/components/PuzzleTile";
+import { WinModal } from "./puzzle/components/WinModal";
+import { WithdrawModal } from "./puzzle/components/WithdrawModal";
+import { BANKS, EMPTY_SLOT, HOME_LEVELS } from "./puzzle/constants";
+import { useLevelProgress } from "./puzzle/hooks/useLevelProgress";
+import {
+  createShuffledBoard,
+  createSolvedBoard,
+  formatNaira,
+  formatTime,
+  generateMathChallenge,
+  getNeighbors,
+  isBoardSolved,
+} from "./puzzle/utils";
 
 export default function GamesPage() {
-  const [currentLevelIndex, setCurrentLevelIndex] = useState<number>(() => {
-    if (typeof window !== "undefined") {
-      const saved = Number(localStorage.getItem("puzzle-current-level") ?? 0);
-      if (Number.isInteger(saved) && saved >= 0 && saved < LEVELS.length) return saved;
-    }
-    return 0;
-  });
-  const [maxUnlockedLevel, setMaxUnlockedLevel] = useState<number>(() => {
-    if (typeof window !== "undefined") {
-      const saved = Number(localStorage.getItem("puzzle-max-unlocked-level") ?? 0);
-      if (Number.isInteger(saved) && saved >= 0 && saved < LEVELS.length) return saved;
-    }
-    return 0;
-  });
-  const [completedLevels, setCompletedLevels] = useState<number[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("puzzle-completed-levels");
-      if (!saved) return [];
-      try {
-        const parsed = JSON.parse(saved) as number[];
-        return parsed.filter((idx) => Number.isInteger(idx) && idx >= 0 && idx < LEVELS.length);
-      } catch {
-        return [];
-      }
-    }
-    return [];
-  });
+  const {
+    currentLevel,
+    currentLevelIndex,
+    maxUnlockedLevel,
+    completedLevels,
+    hasNextLevel,
+    selectLevel,
+    markLevelCompleted,
+    goToNextLevel,
+  } = useLevelProgress(HOME_LEVELS);
   const [board, setBoard] = useState<number[]>(() =>
-    createSolvedBoard(LEVELS[0].rows, LEVELS[0].cols),
+    createSolvedBoard(HOME_LEVELS[0].rows, HOME_LEVELS[0].cols),
   );
   const [mounted, setMounted] = useState(false);
   const [showWinModal, setShowWinModal] = useState(false);
@@ -172,6 +38,7 @@ export default function GamesPage() {
   const [elapsed, setElapsed] = useState(0);
   const [paused, setPaused] = useState(false);
   const [winTime, setWinTime] = useState(0);
+  const [isAdvancingLevel, setIsAdvancingLevel] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [selectedBank, setSelectedBank] = useState("");
@@ -180,27 +47,6 @@ export default function GamesPage() {
   const [mathQuestion, setMathQuestion] = useState("");
   const [mathAnswer, setMathAnswer] = useState<number>(0);
   const [withdrawDone, setWithdrawDone] = useState(false);
-
-  const currentLevel = useMemo(() => LEVELS[currentLevelIndex], [currentLevelIndex]);
-  const totalSlots = currentLevel.rows * currentLevel.cols;
-
-  useEffect(() => {
-    localStorage.setItem("puzzle-current-level", String(currentLevelIndex));
-  }, [currentLevelIndex]);
-
-  useEffect(() => {
-    localStorage.setItem("puzzle-max-unlocked-level", String(maxUnlockedLevel));
-  }, [maxUnlockedLevel]);
-
-  useEffect(() => {
-    localStorage.setItem("puzzle-completed-levels", JSON.stringify(completedLevels));
-  }, [completedLevels]);
-
-  useEffect(() => {
-    if (currentLevelIndex > maxUnlockedLevel) {
-      setCurrentLevelIndex(maxUnlockedLevel);
-    }
-  }, [currentLevelIndex, maxUnlockedLevel]);
 
   const startTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -221,6 +67,7 @@ export default function GamesPage() {
   useEffect(() => {
     setBoard(createShuffledBoard(currentLevel.rows, currentLevel.cols));
     setShowWinModal(false);
+    setIsAdvancingLevel(false);
     setMounted(true);
     setElapsed(0);
     setPaused(false);
@@ -237,29 +84,22 @@ export default function GamesPage() {
     return () => stopTimer();
   }, [paused, showWinModal, mounted, stopTimer]);
 
-  const emptyIndex = useMemo(() => board.indexOf(EMPTY), [board]);
-
-  const solved = useMemo(() => {
-    return board.every((value, idx) => {
-      if (idx === totalSlots - 1) return value === EMPTY;
-      return value === idx;
-    });
-  }, [board, totalSlots]);
+  const emptyIndex = useMemo(() => board.indexOf(EMPTY_SLOT), [board]);
+  const solved = useMemo(() => isBoardSolved(board), [board]);
 
   useEffect(() => {
-    if (solved && mounted) {
+    if (solved && mounted && !showWinModal && !isAdvancingLevel) {
       setWinTime(elapsed);
       setShowWinModal(true);
-      setCompletedLevels((prev) => (prev.includes(currentLevelIndex) ? prev : [...prev, currentLevelIndex]));
-      setMaxUnlockedLevel((prev) => Math.max(prev, Math.min(currentLevelIndex + 1, LEVELS.length - 1)));
+      markLevelCompleted(currentLevelIndex);
       setBalance((prev) => prev + 500);
     }
-  }, [solved, mounted, elapsed, currentLevelIndex]);
+  }, [solved, mounted, elapsed, currentLevelIndex, showWinModal, isAdvancingLevel, markLevelCompleted]);
 
   const moveTile = (tileIndex: number) => {
     if (paused) return;
     if (tileIndex < 0 || tileIndex >= board.length) return;
-    if (board[tileIndex] === EMPTY) return;
+    if (board[tileIndex] === EMPTY_SLOT) return;
 
     const canMove = getNeighbors(emptyIndex, currentLevel.rows, currentLevel.cols).includes(
       tileIndex,
@@ -268,7 +108,7 @@ export default function GamesPage() {
 
     setBoard((prev) => {
       const next = [...prev];
-      const nextEmpty = next.indexOf(EMPTY);
+      const nextEmpty = next.indexOf(EMPTY_SLOT);
       [next[nextEmpty], next[tileIndex]] = [next[tileIndex], next[nextEmpty]];
       return next;
     });
@@ -366,9 +206,10 @@ export default function GamesPage() {
   };
 
   const playNextLevel = () => {
-    if (currentLevelIndex < LEVELS.length - 1) {
+    if (hasNextLevel) {
+      setIsAdvancingLevel(true);
       setShowWinModal(false);
-      setCurrentLevelIndex(currentLevelIndex + 1);
+      goToNextLevel();
       setElapsed(0);
       setPaused(false);
       return;
@@ -377,9 +218,9 @@ export default function GamesPage() {
     resetGame();
   };
 
-  const selectLevel = (levelIndex: number) => {
-    if (levelIndex > maxUnlockedLevel) return;
-    setCurrentLevelIndex(levelIndex);
+  const handleSelectLevel = (levelIndex: number) => {
+    const didSelect = selectLevel(levelIndex);
+    if (!didSelect) return;
     setShowWinModal(false);
     setElapsed(0);
     setPaused(false);
@@ -404,6 +245,10 @@ export default function GamesPage() {
     if (!canWithdraw || balance < 10000) return;
     setBalance(0);
     setWithdrawDone(true);
+  };
+
+  const handleAccountNumberChange = (value: string) => {
+    setAccountNumber(value.replace(/\D/g, "").slice(0, 10));
   };
 
   return (
@@ -481,7 +326,7 @@ export default function GamesPage() {
               }}
             >
               {board.map((pieceId, idx) => {
-                if (pieceId === EMPTY) {
+                if (pieceId === EMPTY_SLOT) {
                   return (
                     <div
                       key={`slot-${idx}`}
@@ -540,200 +385,57 @@ export default function GamesPage() {
 
           <div className="rounded-lg sm:rounded-xl border border-white/[0.12] bg-white/[0.03] p-2 sm:p-2.5 text-white/75 text-xs sm:text-[0.88rem] space-y-2">
             <p className="m-0 text-white/85 text-xs sm:text-sm">Levels</p>
-            <div className="grid grid-cols-2 gap-2">
-              {LEVELS.map((level, idx) => {
-                const isUnlocked = idx <= maxUnlockedLevel;
-                const isActive = idx === currentLevelIndex;
-                const isCompleted = completedLevels.includes(idx);
-
-                return (
-                  <button
-                    key={`sidebar-${level.label}`}
-                    type="button"
-                    onClick={() => selectLevel(idx)}
-                    disabled={!isUnlocked}
-                    className={`relative overflow-hidden rounded-lg border p-0 text-left transition ${
-                      isActive ? "border-yellow-300/70" : "border-white/20"
-                    } ${isUnlocked ? "cursor-pointer" : "cursor-not-allowed opacity-65"}`}
-                    aria-label={`${level.label}${isUnlocked ? "" : " locked"}`}
-                  >
-                    <Image src={level.image} alt={level.label} width={400} height={520} className="h-20 w-full object-cover" />
-                    <div className="absolute inset-x-0 bottom-0 bg-black/65 px-2 py-1 text-[11px] text-white/90 flex items-center justify-between">
-                      <span>{level.label}</span>
-                      <span>{isUnlocked ? (isCompleted ? "Done" : "Open") : "Locked"}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+            <LevelPreviewGrid
+              levels={HOME_LEVELS}
+              currentLevelIndex={currentLevelIndex}
+              maxUnlockedLevel={maxUnlockedLevel}
+              completedLevels={completedLevels}
+              onSelectLevel={handleSelectLevel}
+              keyPrefix="home-sidebar"
+            />
           </div>
         </aside>
       </div>
 
-      {showWinModal ? (
-        <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm grid place-items-center p-3 sm:p-4 z-40 animate-[fadeIn_0.3s_ease-out]"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="w-full max-w-[640px] rounded-2xl sm:rounded-3xl border bg-gradient-to-b from-[#1c1a0e] via-[#121212] to-[#060606] p-5 sm:p-8 text-center shadow-[0_0_80px_rgba(250,204,21,0.12)] animate-[popIn_0.4s_ease-out]">
-            <h2 className="m-0 text-2xl sm:text-3xl font-bold bg-gradient-to-r from-yellow-300 via-amber-400 to-yellow-300 bg-clip-text text-transparent">
-              Puzzle Champion!
-            </h2>
-            <div className="mt-3 sm:mt-4 inline-block rounded-full border border-yellow-400/20 bg-yellow-400/10 px-4 py-1.5 sm:px-5 sm:py-2">
-              <span className="text-yellow-300 font-semibold text-base sm:text-lg">
-                🎉 You just unlocked ₦5,000
-              </span>
-            </div>
-            <div className="mt-2.5 sm:mt-3 inline-block rounded-full border border-white/15 bg-white/5 px-3 py-1 sm:px-4 sm:py-1.5">
-              <span className="text-white/70 font-mono text-xs sm:text-sm">
-                ⏱ Completed in {formatTime(winTime)}
-              </span>
-            </div>
-            <p className="mt-3 sm:mt-4 text-white/70 text-base sm:text-lg leading-relaxed max-w-md mx-auto">
-              Smooth moves. Clean finish. You solved the puzzle like an absolute
-              pro.
-            </p>
-            <div className="flex flex-wrap justify-center gap-2.5 sm:gap-3 mt-5 sm:mt-6">
-              <button
-                className="rounded-full border border-yellow-400/40 bg-yellow-400/10 hover:bg-yellow-400/20 text-yellow-200 py-2.5 px-5 sm:py-3 sm:px-6 text-sm sm:text-base font-medium transition-colors"
-                onClick={playNextLevel}
-              >
-                {currentLevelIndex < LEVELS.length - 1
-                  ? "Play Next Level"
-                  : "Play Again"}
-              </button>
-              <button
-                className="rounded-full border border-white/20 bg-white/5 hover:bg-white/10 text-white/80 py-2.5 px-5 sm:py-3 sm:px-6 text-sm sm:text-base font-medium transition-colors"
-                onClick={() => {
-                  setShowWinModal(false);
-                  openWithdrawModal();
-                }}
-              >
-                Withdraw
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <WinModal
+        isOpen={showWinModal}
+        variant="home"
+        completedTimeText={formatTime(winTime)}
+        hasNextLevel={hasNextLevel}
+        rewardText="You just unlocked ₦5,000"
+        onPrimaryAction={playNextLevel}
+        onSecondaryAction={() => {
+          setShowWinModal(false);
+          openWithdrawModal();
+        }}
+        secondaryLabel="Withdraw"
+      />
 
-      {withdrawOpen ? (
-        <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-sm grid place-items-center p-3 sm:p-4 z-40"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="w-full max-w-[480px] max-h-[90dvh] overflow-y-auto rounded-2xl border border-white/10 bg-[#111] p-4 sm:p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-1">
-              <h2 className="m-0 text-lg font-semibold">Withdraw</h2>
-              <button
-                className="text-white/40 hover:text-white/80 transition-colors text-xl leading-none p-1"
-                onClick={() => setWithdrawOpen(false)}
-                aria-label="Close"
-              >
-                &times;
-              </button>
-            </div>
-
-            <div className="rounded-lg bg-white/[0.04] border border-white/[0.08] px-3 py-2.5 sm:px-4 sm:py-3 mb-4 sm:mb-5">
-              <p className="m-0 text-white/50 text-xs uppercase tracking-wide">
-                Available Balance
-              </p>
-              <p className="m-0 text-white text-lg sm:text-xl font-semibold mt-0.5">
-                {formatNaira(balance)}
-              </p>
-            </div>
-
-            <div className="space-y-3 sm:space-y-4">
-              <div>
-                <label className="block text-white/60 text-xs font-medium uppercase tracking-wide mb-1.5">
-                  Bank
-                </label>
-                <select
-                  className="w-full rounded-lg border border-white/[0.12] bg-white/[0.04] text-white py-2.5 px-3 focus:outline-none focus:border-white/30 transition-colors"
-                  value={selectedBank}
-                  onChange={(e) => setSelectedBank(e.target.value)}
-                >
-                  <option value="">Select your bank</option>
-                  {BANKS.map((bank) => (
-                    <option key={bank} value={bank}>
-                      {bank}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-white/60 text-xs font-medium uppercase tracking-wide mb-1.5">
-                  Account Number
-                </label>
-                <input
-                  className="w-full rounded-lg border border-white/[0.12] bg-white/[0.04] text-white py-2.5 px-3 focus:outline-none focus:border-white/30 transition-colors"
-                  value={accountNumber}
-                  onChange={(e) =>
-                    setAccountNumber(
-                      e.target.value.replace(/\D/g, "").slice(0, 10),
-                    )
-                  }
-                  inputMode="numeric"
-                  placeholder="0000000000"
-                />
-                {!accountValid && accountNumber.length > 0 ? (
-                  <p className="mt-1.5 text-rose-400 text-xs">
-                    Must be exactly 10 digits.
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="border-t border-white/[0.08] pt-4">
-                <label className="block text-white/60 text-xs font-medium uppercase tracking-wide mb-1.5">
-                  Verification
-                </label>
-                <p className="m-0 text-white/80 text-sm mb-2 font-mono bg-white/[0.04] rounded-lg px-3 py-2 border border-white/[0.08]">
-                  {mathQuestion}
-                </p>
-                <input
-                  className="w-full rounded-lg border border-white/[0.12] bg-white/[0.04] text-white py-2.5 px-3 focus:outline-none focus:border-white/30 transition-colors"
-                  value={mathInput}
-                  onChange={(e) => setMathInput(e.target.value)}
-                  placeholder="Your answer"
-                />
-                {mathInput.length > 0 && !challengePassed ? (
-                  <p className="mt-1.5 text-rose-400 text-xs">
-                    Incorrect. Try again.
-                  </p>
-                ) : null}
-              </div>
-            </div>
-
-            {withdrawDone ? (
-              <div className="mt-5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 px-4 py-3 text-sm">
-                Transfer submitted to{" "}
-                <span className="font-medium text-emerald-200">
-                  {selectedBank}
-                </span>
-                . Your balance is now {formatNaira(balance)}.
-              </div>
-            ) : null}
-
-            <div className="flex gap-2.5 sm:gap-3 mt-4 sm:mt-5">
-              <button
-                className="flex-1 rounded-lg border border-white/[0.12] bg-transparent text-white/70 hover:text-white hover:bg-white/[0.06] py-2.5 text-sm font-medium transition-colors"
-                onClick={() => setWithdrawOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className="flex-1 rounded-lg border border-white/20 bg-white text-black py-2.5 text-sm font-semibold hover:bg-white/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-white"
-                onClick={handleWithdraw}
-                disabled={!canWithdraw || withdrawDone}
-              >
-                Confirm Withdrawal
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <WithdrawModal
+        isOpen={withdrawOpen}
+        variant="home"
+        title="Withdraw"
+        showAvailableBalance
+        balanceText={formatNaira(balance)}
+        banks={BANKS}
+        selectedBank={selectedBank}
+        onSelectedBankChange={setSelectedBank}
+        accountNumber={accountNumber}
+        onAccountNumberChange={handleAccountNumberChange}
+        accountPlaceholder="0000000000"
+        accountValid={accountValid}
+        mathQuestion={mathQuestion}
+        mathInput={mathInput}
+        onMathInputChange={setMathInput}
+        challengePassed={challengePassed}
+        withdrawDone={withdrawDone}
+        doneMessage={`Transfer submitted to ${selectedBank}. Your balance is now ${formatNaira(balance)}.`}
+        canWithdraw={canWithdraw && balance >= 10000}
+        onClose={() => setWithdrawOpen(false)}
+        onSubmit={handleWithdraw}
+        closeLabel="Cancel"
+        submitLabel="Confirm Withdrawal"
+      />
     </main>
   );
 }
